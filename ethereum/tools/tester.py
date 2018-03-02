@@ -8,7 +8,21 @@ from ethereum.messages import apply_transaction, apply_message
 from ethereum.common import verify_execution_results, mk_block_from_prevstate, set_execution_results
 from ethereum.meta import make_head_candidate
 from ethereum.abi import ContractTranslator
+from ethereum.visualization import Record
 import rlp
+from rlp.sedes import big_endian_int, Binary, binary, CountableList, List
+from ethereum.utils import encode_hex #TODO: REMOVE
+from ethereum import utils
+from ethereum.utils import (
+    sha3,
+    privtoaddr,
+    int_to_addr,
+    to_string,
+    checksum_encode,
+    int_to_big_endian,
+    encode_hex,
+)#TODO: REMOVE LATER?
+
 # Initialize accounts
 accounts = []
 keys = []
@@ -174,7 +188,15 @@ class Chain(object):
         self.last_sender = None
         self.last_tx = None
 
+        # record for visualization
+        self.record = Record()
+        genesis_block = self.chain.get_block_by_number(0)
+        self.record.add_block(genesis_block)
+ 
+ 
+
     def direct_tx(self, transaction):
+        
         self.last_tx = transaction
         if self.last_sender is not None and privtoaddr(
                 self.last_sender) != transaction.sender:
@@ -187,6 +209,8 @@ class Chain(object):
 
     def tx(self, sender=k0, to=b'\x00' * 20, value=0,
            data=b'', startgas=STARTGAS, gasprice=GASPRICE):
+
+       
         sender_addr = privtoaddr(sender)
         self.last_sender = sender
         transaction = Transaction(self.head_state.get_nonce(sender_addr), gasprice,
@@ -194,7 +218,15 @@ class Chain(object):
         # Signs if the transactions isn't a Casper vote
         casper_contract = to == self.head_state.config['CASPER_ADDRESS']
         vote = data[0:4] == b'\xe9\xdc\x06\x14'
+
+ 
         if casper_contract and vote:
+
+            sedes = List([utils.big_endian_int, utils.hash32, utils.big_endian_int, utils.big_endian_int, binary])   
+            shortened_data = data[68:-24] #TODO: when I fail at decoding
+            values = rlp.decode(shortened_data, sedes)
+          
+            self.record.add_vote(values)
             transaction.nonce = 0
         else:
             transaction.sign(sender)
@@ -254,12 +286,22 @@ class Chain(object):
         set_execution_results(self.head_state, self.block)
         self.block = Miner(self.block).mine(rounds=100, start_nonce=0)
         assert self.chain.add_block(self.block)
+       
+        add_header_topic = utils.sha3("add_header()")
+
+        #raw_log([add_header_topic], 'hi')
+
         b = self.block
+       
+        self.record.add_block(b)
         for i in range(1, number_of_blocks):
             b, _ = make_head_candidate(
                 self.chain, parent=b, timestamp=self.chain.state.timestamp + timestamp, coinbase=coinbase)
             b = Miner(b).mine(rounds=100, start_nonce=0)
             assert self.chain.add_block(b)
+            
+           
+            self.record.add_block(b)
         self.change_head(b.header.hash, coinbase)
         return b
 
@@ -271,8 +313,10 @@ class Chain(object):
             self.head_state,
             timestamp=self.chain.state.timestamp,
             coinbase=coinbase)
+
         self.cs.initialize(self.head_state, self.block)
 
+ 
     def snapshot(self):
         self.head_state.commit()
         return self.head_state.snapshot(), len(
@@ -283,7 +327,6 @@ class Chain(object):
         assert blknum == self.block.number, "Cannot revert beyond block boundaries!"
         self.block.transactions = self.block.transactions[:txcount]
         self.head_state.revert(state_snapshot)
-
 
 def int_to_0x_hex(v):
     o = encode_hex(int_to_big_endian(v))
