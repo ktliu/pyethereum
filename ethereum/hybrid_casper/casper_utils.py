@@ -7,10 +7,12 @@ from ethereum.hybrid_casper.casper_initiating_transactions import mk_initializer
 from ethereum.hybrid_casper import consensus
 from ethereum.hybrid_casper.config import config
 from ethereum.messages import apply_transaction
-from ethereum.tools.tester import a0
+from ethereum.tools import tester
 from viper import compiler, optimizer, compile_lll
 from viper.parser.parser_utils import LLLnode
 import rlp
+from ethereum.utils import encode_hex
+
 
 ethereum_path = os.path.dirname(sys.modules['ethereum'].__file__)
 casper_contract_path = '/'.join((ethereum_path, '..', 'casper', 'casper', 'contracts', 'simple_casper.v.py'))
@@ -20,12 +22,14 @@ casper_abi = compiler.mk_full_signature(casper_code)
 casper_translator = abi.ContractTranslator(casper_abi)
 purity_translator = abi.ContractTranslator(purity_checker_abi)
 
+
+
 # Get a genesis state which is primed for Casper
 def make_casper_genesis(alloc, epoch_length, withdrawal_delay, base_interest_factor, base_penalty_factor, genesis_declaration=None, db=None):
     # The Casper-specific dynamic config declaration
     config.casper_config['EPOCH_LENGTH'] = epoch_length
     config.casper_config['WITHDRAWAL_DELAY'] = withdrawal_delay
-    config.casper_config['OWNER'] = a0
+    config.casper_config['OWNER'] = tester.a0
     config.casper_config['BASE_INTEREST_FACTOR'] = base_interest_factor
     config.casper_config['BASE_PENALTY_FACTOR'] = base_penalty_factor
     # Get initialization txs
@@ -85,3 +89,59 @@ def induct_validator(chain, casper, key, value):
     valcode_addr = chain.tx(key, "", 0, mk_validation_code(sender))
     assert utils.big_endian_to_int(chain.tx(key, purity_checker_address, 0, purity_translator.encode('submit', [valcode_addr]))) == 1
     casper.deposit(valcode_addr, sender, value=value)
+
+
+def validators(casper):
+    validator_indexes = casper.get_nextValidatorIndex()
+    validators = []
+    for i in range(validator_indexes + 1):
+        validator_index = i+1
+        v = {}
+        v["addr"] = casper.get_validators__addr(validator_index)
+        v["start_dynasty"] = casper.get_validators__start_dynasty(validator_index)
+        v["end_dynasty"] = casper.get_validators__end_dynasty(validator_index)
+        v["deposit"] = casper.get_deposit_size(validator_index)
+        validators.append(v)
+    return validators
+
+def votes_and_deposits(casper, ce, ese):
+    cur_deposits = casper.get_total_curdyn_deposits()
+    prev_deposits = casper.get_total_prevdyn_deposits()
+
+    cur_votes = 0 #change: current_votes is always 0
+    prev_votes = casper.get_votes__prev_dyn_votes(ce, ese) * casper.get_deposit_scale_factor(ce)
+    cur_vote_pct = cur_votes * 100 / cur_deposits if cur_deposits else 0
+    prev_vote_pct = prev_votes * 100 / prev_deposits if prev_deposits else 0
+    last_nonvoter_rescale, last_voter_rescale = casper.get_last_nonvoter_rescale(), casper.get_last_voter_rescale()
+    return {
+        "cur_deposits":cur_deposits,
+        "prev_deposits":prev_deposits,
+        "cur_votes":cur_votes,
+        "prev_votes":prev_votes,
+        "cur_vote_pct":cur_vote_pct,
+        "prev_vote_pct":prev_vote_pct,
+        "last_nonvoter_rescale":last_nonvoter_rescale,
+        "last_voter_rescale":last_voter_rescale
+    }
+
+
+def epoch_info(epoch,eth):
+    epoch_length = eth.chain.config['EPOCH_LENGTH']
+    height = epoch * epoch_length + (epoch_length - 1) #change: capture data at end of epoch
+    blockhash = eth.chain.get_blockhash_by_number(height)
+
+    temp_state = eth.chain.mk_poststate_of_blockhash(blockhash)
+    casper = tester.ABIContract(tester.State(temp_state), casper_abi, eth.chain.config['CASPER_ADDRESS'])
+    
+
+    ce, ese = casper.get_current_epoch(), casper.get_expected_source_epoch()
+    
+    info = {}
+    info["number"] = height
+    info["blockhash"] = encode_hex(blockhash)
+    info["current_epoch"] = ce
+    info["validators"] = validators(casper)
+    info["lje"] = casper.get_last_justified_epoch()
+    info["lfe"] = casper.get_last_finalized_epoch()
+    info["votes"] = votes_and_deposits(casper, ce, ese)
+    return info
