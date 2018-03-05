@@ -15,12 +15,10 @@ Future Todos:
 - Add third edge for votes (any child checkpoint the votes get included in)
 
 
-Epoch 
+ 
 
-![alt text](https://github.com/ktliu/pyethereum/blob/visulization/ethereum/epoch_1.pdf)
+[Epoch Visualization](https://github.com/ktliu/pyethereum/blob/visulization/ethereum/epoch_1.pdf)
 
-Blocks 
-
-![alt text](https://github.com/ktliu/pyethereum/blob/visulization/ethereum/block_1.pdf)
+[Block Visualization](https://github.com/ktliu/pyethereum/blob/visulization/ethereum/block_1.pdf)
 
  
