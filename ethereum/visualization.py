@@ -160,10 +160,12 @@ class CasperVisualization(object):
 
 				else:
 					je_name = "{}{}{}".format(pre_label, self.get_node_name_from_hash(next_epoch),  self.get_node_name_from_hash(epoch))
+					self.g.body.append("node[group={}];".format(je_name))
+
 					self.g.node(je_name, label="", _attributes={'width':'0', 'height': '0'}) #I don't <3 graphviz >:(
 				
-					self.g.edge(je_name,self.get_node_name_from_hash(epoch) ,  _attributes={'arrowhead':'dot', 'color': color})
-					self.g.edge(self.get_node_name_from_hash(next_epoch),je_name, _attributes={'arrowhead':'none', 'color': color})
+					self.g.edge(je_name,self.get_node_name_from_hash(epoch) ,  _attributes={'arrowhead':'dot', 'color': color, 'tailport': 'e', 'headport': 'e'})
+					self.g.edge(self.get_node_name_from_hash(next_epoch),je_name, _attributes={'arrowhead':'none', 'color': color, 'tailport': 'e', 'headport': 'e'})
 	 
 	def draw_mainchain(self, chain):
 		
@@ -309,12 +311,17 @@ class CasperVisualization(object):
 			self.add_rank([period] + labels, rank)
 
 	def draw(self):
+		self.execute()
+		self.g.render()
 
+	def graphviz_output(self):
+		self.execute()
+		return self.g
+
+	def execute(self):
 		#self.draw_mainchain(self.mainchain) # This would be drawing sharding's visualization (only the main chain no forks)
 		self.draw_mainchain_with_forks_version_1() # first version of drawing mainchain with forks
 		
 		self.draw_votes()
 		
 		self.set_rank(self.layers)
- 
-		self.g.render()
