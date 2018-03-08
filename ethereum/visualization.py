@@ -320,7 +320,7 @@ class CasperVisualization(object):
 
 	def execute(self):
 		#self.draw_mainchain(self.mainchain) # This would be drawing sharding's visualization (only the main chain no forks)
-		self.draw_mainchain_with_forks_version_1() # first version of drawing mainchain with forks
+		self.draw_mainchain_with_forks_version_1() #first version of drawing mainchain with forks
 		
 		self.draw_votes()
 		
