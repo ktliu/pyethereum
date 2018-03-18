@@ -80,15 +80,20 @@ class Record(object):
 		
 		justified_epochs = []
 		epoch_length = chain.chain.config['EPOCH_LENGTH']
-		epoch = self.blocks_by_forks[0]['end'].number // epoch_length
-		 
+		epoch = self.mainchain_head_header.number // epoch_length
+
 		for epoch in range(epoch):
 			info = epoch_info(epoch, chain)
 			if info['lje'] != 0:
 				self.justified_blocks.append(chain.chain.get_block_by_number(info['lje'] * epoch_length - 1).header.hash)
+			#else:
+				#self.justified_blocks.append(chain.chain.get_block_by_number(info['lje']).header.hash)
+
 			if info['lfe'] != 0:
 				self.finalized_blocks.append(chain.chain.get_block_by_number(info['lfe'] * epoch_length - 1).header.hash)
-		
+			#else:
+				#self.finalized_blocks.append(chain.chain.get_block_by_number(info['lfe']).header.hash)
+
 		#TODO: find better way to remove duplicates
 		self.justified_blocks = list(dict.fromkeys(self.justified_blocks))
 		self.finalized_blocks = list(dict.fromkeys(self.finalized_blocks))
@@ -106,6 +111,7 @@ class CasperVisualization(object):
 		self.vote_caption = "vote"
 		self.g = gv.Digraph('G', filename=filename)
 		self.epoch_length = tester_chain.chain.config['EPOCH_LENGTH']
+		
 	def draw_block(self, current_hash, prev_hash, label_edges, height):
 		prev_node_name = self.get_node_name_from_hash(prev_hash)
 		node_name = self.get_node_name_from_hash(current_hash)
@@ -146,10 +152,11 @@ class CasperVisualization(object):
 			next_epoch = block_list[next_epoch_idx]
 			 
 			if epoch != 0:
-				 
+				# Draw out the edge to the target and source 
 				if self.draw_in_epoch:
 					block_target_header = self.record.blocks[epoch]
 					source_block_header = self.record.blocks[next_epoch]
+					#loop to the right block in the epoch
 					while block_target_header.number % self.epoch_length != 0:
 						block_target_header = self.record.blocks[block_target_header.prevhash]
 					while source_block_header.number % self.epoch_length != 0:
@@ -159,14 +166,21 @@ class CasperVisualization(object):
 					self.g.edge(self.get_node_name_from_hash(next_epoch), self.get_node_name_from_hash(epoch), _attributes={'arrowhead':'dot', 'color': color, 'tailport': 'e', 'headport': 'e'})
 
 				else:
+					je_name_target = "{}{}{}t".format(pre_label, self.get_node_name_from_hash(next_epoch),  self.get_node_name_from_hash(epoch))
+					je_name_source = "{}{}{}s".format(pre_label, self.get_node_name_from_hash(next_epoch),  self.get_node_name_from_hash(epoch))
 					je_name = "{}{}{}".format(pre_label, self.get_node_name_from_hash(next_epoch),  self.get_node_name_from_hash(epoch))
-					self.g.body.append("node[group={}];".format(je_name))
+					print("JE_NAME_TARGET {}, {}, {}, {}".format(je_name_target, je_name_source, self.get_node_name_from_hash(epoch), self.get_node_name_from_hash(next_epoch)))
 
-					self.g.node(je_name, label="", _attributes={'width':'0', 'height': '0'}) #I don't <3 graphviz >:(
-				
-					self.g.edge(je_name,self.get_node_name_from_hash(epoch) ,  _attributes={'arrowhead':'dot', 'color': color, 'tailport': 'e', 'headport': 'e'})
-					self.g.edge(self.get_node_name_from_hash(next_epoch),je_name, _attributes={'arrowhead':'none', 'color': color, 'tailport': 'e', 'headport': 'e'})
-	 
+					self.g.node(je_name_target, label='', shape='none', _attributes={'width':'0', 'height': '0'}) #I don't <3 graphviz >:(
+					self.g.node(je_name_source, label='', shape='none', _attributes={'width':'0', 'height': '0'}) #I don't <3 graphviz >:(
+
+					self.g.edge(je_name_target, self.get_node_name_from_hash(epoch) ,  _attributes={'arrowhead':'dot', 'color': color})
+					self.g.edge(je_name_source, self.get_node_name_from_hash(next_epoch) ,  _attributes={'arrowhead':'dot', 'color': color})
+					self.g.edge(je_name_source, je_name_target ,  _attributes={'arrowhead':'none', 'color': color})
+
+					self.layers[self.get_node_name_from_hash(epoch)].append(je_name_target)
+					self.layers[self.get_node_name_from_hash(next_epoch)].append(je_name_source)
+
 	def draw_mainchain(self, chain):
 		
 		self.draw_chain(chain.head, self.mainchain_genesis_header)
@@ -252,6 +266,7 @@ class CasperVisualization(object):
 
 				if self.draw_in_epoch:
 					block_target_header = self.record.blocks[hash]
+					#TODO: prob move this in function, loop to right block in epoch
 					while block_target_header.number % self.epoch_length != 0:
 						block_target_header = self.record.blocks[block_target_header.prevhash]
 					while source_block_header.number % self.epoch_length != 0:
@@ -287,9 +302,10 @@ class CasperVisualization(object):
 	def draw_struct(self, node_name, prev_node_name, height, label_edges, shape, caption):
 		assert isinstance(height, int) #TODO: ask why assert height :p
 		label_list = [item[0][1] for item in label_edges]
-		struct_label = '{ %s }' % caption 
-		self.g.node(node_name, struct_label, shape=shape)
-		self.g.edge(node_name, prev_node_name, _attributes={'tailport': 'c', 'headport': 'c'})
+		#looks like record shape is deprecated? gives "replace records with HTML-like labels" warning
+		struct_label = '<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="10"><TR><TD>{}</TD></TR></TABLE>>'.format(caption)
+		self.g.node(node_name, struct_label, shape='none')
+		self.g.edge(node_name, prev_node_name, _attributes={'tailport': 'c', 'headport': 'c', 'xlabel': '', 'forcelabel': 'true'})
 
 	# Align the nodes on specific heights 
 	def add_rank(self, node_list, rank='same'):
@@ -320,7 +336,7 @@ class CasperVisualization(object):
 
 	def execute(self):
 		#self.draw_mainchain(self.mainchain) # This would be drawing sharding's visualization (only the main chain no forks)
-		self.draw_mainchain_with_forks_version_1() #first version of drawing mainchain with forks
+		self.draw_mainchain_with_forks_version_1() # first version of drawing mainchain with forks
 		
 		self.draw_votes()
 		
