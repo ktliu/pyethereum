@@ -27,6 +27,8 @@ class Record(object):
 		self.justified_blocks = []
 		self.finalized_blocks = []
 
+		self.block_info = defaultdict(dict)
+
 
 	def add_block(self, block):
 		header = block.header
@@ -58,15 +60,23 @@ class Record(object):
 				elif fork_index == len(self.blocks_by_forks) - 1: #if finished looking through existing forks, create a new fork
 					self.blocks_by_forks.append({'start': block, 'end': block}) 
 					break
-
-		 
+ 
 	def add_vote(self, vote):
 		validator_index = vote[0]
 		_h = vote[1]
 		_t = vote[2]
 		_s = vote[3]
-		
 		vote = {'index': validator_index, 'hash': _h, 'target': _t, 'source': _s}
+		 
+		#Track this vote 
+		shorten_hash = get_shorten_hash(_h)
+		block_number = self.blocks[_h].number
+		if block_number not in self.block_info['vote']:
+			self.block_info['vote'][block_number] = {}
+		if shorten_hash not in self.block_info['vote'][block_number]:
+			self.block_info['vote'][block_number][shorten_hash] = [] 
+		self.block_info['vote'][block_number][shorten_hash].append(validator_index)
+
 		self.votes[_h].append(vote)
 
 	def get_tx_labels_from_node(self, node_hash):
@@ -75,6 +85,15 @@ class Record(object):
 		return self.node_events[node_hash]
 
 	def add_epoch_info(self, chain):
+		from ethereum.hybrid_casper.casper_utils import epoch_info
+		epoch_length = chain.chain.config['EPOCH_LENGTH']
+		epoch = self.mainchain_head_header.number // epoch_length
+		info = {}
+		for epoch in range(epoch):
+			info[epoch] = epoch_info(epoch, chain)		
+		return info
+
+	def add_finalized_justified_info(self, chain):
 		
 		from ethereum.hybrid_casper.casper_utils import epoch_info
 		
@@ -84,6 +103,9 @@ class Record(object):
 
 		for epoch in range(epoch):
 			info = epoch_info(epoch, chain)
+			if not info:
+				continue
+
 			if info['lje'] != 0:
 				self.justified_blocks.append(chain.chain.get_block_by_number(info['lje'] * epoch_length - 1).header.hash)
 			#else:
@@ -111,6 +133,7 @@ class CasperVisualization(object):
 		self.vote_caption = "vote"
 		self.g = gv.Digraph('G', filename=filename)
 		self.epoch_length = tester_chain.chain.config['EPOCH_LENGTH']
+ 
 		
 	def draw_block(self, current_hash, prev_hash, label_edges, height):
 		prev_node_name = self.get_node_name_from_hash(prev_hash)
@@ -138,7 +161,7 @@ class CasperVisualization(object):
 		self.g.node(self.mainchain_caption, shape='none')
 
 		#draw justified epochs
-		self.record.add_epoch_info(self.tester_chain)
+		self.record.add_finalized_justified_info(self.tester_chain)
 		self.draw_final_or_justified_edges(self.record.justified_blocks, 'blue', JUSTIFIED_LABEL)
 		self.draw_final_or_justified_edges(self.record.finalized_blocks, 'red', FINALIZED_LABEL)
   
@@ -332,7 +355,8 @@ class CasperVisualization(object):
 
 	def graphviz_output(self):
 		self.execute()
-		return self.g
+ 
+ 		return {'blockchain': self.g.source, 'history': self.record.block_info, 'epoch_info': self.record.add_epoch_info(self.tester_chain)}
 
 	def execute(self):
 		#self.draw_mainchain(self.mainchain) # This would be drawing sharding's visualization (only the main chain no forks)
